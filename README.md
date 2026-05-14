@@ -29,6 +29,12 @@ Built on Claude Code. Open source. Scale from your laptop to your entire team.
 
 ---
 
+> **Fork note:** This is a personal fork of [humanlayer/humanlayer](https://github.com/humanlayer/humanlayer). I use CodeLayer as my daily driver and this fork is where I prototype features and fixes before contributing them upstream. Current changes:
+>
+> - **Skills as commands** — Skills from `~/.claude/skills/` now appear in the `/` command popup alongside regular commands, so you can invoke them without memorizing names.
+
+---
+
 > "Our entire company is using CodeLayer now. We're shipping one banger PR after the other. It is so f-ing good. Unbelievable dude."
 >
 > **– René Brandel, Founder @ Casco (YC X25)**
