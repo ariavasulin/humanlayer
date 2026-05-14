@@ -119,13 +119,12 @@ func (m *Manager) generateSummaryAsync(sessionID string, query string) {
 		slog.Debug("skipping summary generation, HTTP server not ready", "session_id", sessionID)
 		return
 	}
-
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		reqBody, err := json.Marshal(map[string]interface{}{
-			"model":      "claude-haiku-4-5-20241022",
+			"model":      "claude-haiku-4-5-20251001",
 			"max_tokens": 50,
 			"system":     "Generate a concise session title (under 50 characters) for the following user query. Output only the title, no quotes, no punctuation at the end.",
 			"messages": []map[string]string{
