@@ -408,6 +408,14 @@ func (m *Manager) LaunchSession(ctx context.Context, config LaunchSessionConfig,
 			"has_env_key", os.Getenv("OPENROUTER_API_KEY") != "")
 	}
 
+	// Inject session identity into Claude process env so CLI commands
+	// (e.g. `humanlayer archive`) can discover the current session
+	if claudeConfig.Env == nil {
+		claudeConfig.Env = make(map[string]string)
+	}
+	claudeConfig.Env["HUMANLAYER_SESSION_ID"] = sessionID
+	claudeConfig.Env["HUMANLAYER_DAEMON_SOCKET"] = m.socketPath
+
 	// Log final configuration before launching
 	var mcpServersDetail string
 	var mcpServerCount int
@@ -1766,6 +1774,14 @@ func (m *Manager) ContinueSession(ctx context.Context, req ContinueSessionConfig
 			"has_openrouter_key", os.Getenv("OPENROUTER_API_KEY") != "")
 	}
 
+	// Inject session identity into Claude process env so CLI commands
+	// (e.g. `humanlayer archive`) can discover the current session
+	if config.Env == nil {
+		config.Env = make(map[string]string)
+	}
+	config.Env["HUMANLAYER_SESSION_ID"] = sessionID
+	config.Env["HUMANLAYER_DAEMON_SOCKET"] = m.socketPath
+
 	// Get Claude client (will attempt initialization if needed)
 	client, err := m.getClaudeClient()
 	if err != nil {
@@ -1996,6 +2012,14 @@ func (m *Manager) launchDraftWithConfig(ctx context.Context, sessionID, runID st
 		claudeConfig.Env["ANTHROPIC_BASE_URL"] = proxyURL
 		claudeConfig.Env["ANTHROPIC_API_KEY"] = "proxy-handled"
 	}
+
+	// Inject session identity into Claude process env so CLI commands
+	// (e.g. `humanlayer archive`) can discover the current session
+	if claudeConfig.Env == nil {
+		claudeConfig.Env = make(map[string]string)
+	}
+	claudeConfig.Env["HUMANLAYER_SESSION_ID"] = sessionID
+	claudeConfig.Env["HUMANLAYER_DAEMON_SOCKET"] = m.socketPath
 
 	// Launch Claude session
 	slog.Info("launching draft session with Claude",
