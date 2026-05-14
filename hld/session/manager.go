@@ -1763,6 +1763,8 @@ func (m *Manager) ContinueSession(ctx context.Context, req ContinueSessionConfig
 		return nil, fmt.Errorf("failed to store session in database: %w", err)
 	}
 
+	m.generateSummaryAsync(sessionID, req.Query)
+
 	// Re-apply MCP servers to the new session
 	// This ensures that forked sessions retain the MCP configuration
 
@@ -2255,6 +2257,8 @@ func (m *Manager) LaunchDraftSession(ctx context.Context, sessionID string, prom
 	if err := m.store.UpdateSession(ctx, sessionID, update); err != nil {
 		return fmt.Errorf("failed to update draft session: %w", err)
 	}
+
+	m.generateSummaryAsync(sessionID, prompt)
 
 	// The rest of the launch logic is already handled by the existing session monitoring
 	// We just need to transition from draft to starting and let the existing flow take over

@@ -176,8 +176,8 @@ Insert after line 2162 (after the `UpdateSession` error check block in `LaunchDr
 ### Verification
 
 #### Automated
-- [ ] `cd hld && go build ./...` — compiles
-- [ ] `cd hld && make test-unit-quiet` — passes
+- [x] `cd hld && go build ./...` — compiles
+- [x] `cd hld && make test-unit-quiet` — passes
 
 #### Manual
 - [ ] Fork a session (triggers `ContinueSession`). Child session should get its own LLM summary, independent of parent's summary.
