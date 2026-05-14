@@ -1,10 +1,13 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,6 +105,96 @@ func (m *Manager) SetHTTPPort(port int) {
 	defer m.mu.Unlock()
 	m.httpPort = port
 	slog.Debug("HTTP port set for proxy endpoint", "port", port)
+}
+
+// generateSummaryAsync spawns a goroutine that calls the Anthropic proxy to generate
+// a concise session summary from the query. On any failure, the existing truncated
+// summary is left in place. Uses context.Background() because this outlives the
+// caller's request context.
+func (m *Manager) generateSummaryAsync(sessionID string, query string) {
+	m.mu.RLock()
+	port := m.httpPort
+	m.mu.RUnlock()
+	if port == 0 {
+		slog.Debug("skipping summary generation, HTTP server not ready", "session_id", sessionID)
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		reqBody, err := json.Marshal(map[string]interface{}{
+			"model":      "claude-haiku-4-5-20241022",
+			"max_tokens": 50,
+			"system":     "Generate a concise session title (under 50 characters) for the following user query. Output only the title, no quotes, no punctuation at the end.",
+			"messages": []map[string]string{
+				{"role": "user", "content": query},
+			},
+		})
+		if err != nil {
+			slog.Debug("failed to marshal summary request", "session_id", sessionID, "error", err)
+			return
+		}
+
+		url := fmt.Sprintf("http://localhost:%d/api/v1/anthropic_proxy/%s/v1/messages", port, sessionID)
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if err != nil {
+			slog.Debug("failed to create summary request", "session_id", sessionID, "error", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("anthropic-version", "2023-06-01")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			slog.Debug("summary generation request failed", "session_id", sessionID, "error", err)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != 200 {
+			slog.Debug("summary generation returned non-200", "session_id", sessionID, "status", resp.StatusCode)
+			return
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			slog.Debug("failed to read summary response", "session_id", sessionID, "error", err)
+			return
+		}
+
+		var result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			slog.Debug("failed to parse summary response", "session_id", sessionID, "error", err)
+			return
+		}
+		if len(result.Content) == 0 || strings.TrimSpace(result.Content[0].Text) == "" {
+			slog.Debug("summary response had no content", "session_id", sessionID)
+			return
+		}
+
+		summary := strings.TrimSpace(result.Content[0].Text)
+		if err := m.store.UpdateSession(ctx, sessionID, store.SessionUpdate{Summary: &summary}); err != nil {
+			slog.Debug("failed to update session summary", "session_id", sessionID, "error", err)
+			return
+		}
+
+		if m.eventBus != nil {
+			m.eventBus.Publish(bus.Event{
+				Type: bus.EventSessionStatusChanged,
+				Data: map[string]interface{}{
+					"session_id": sessionID,
+				},
+			})
+		}
+
+		slog.Debug("session summary generated", "session_id", sessionID, "summary", summary)
+	}()
 }
 
 // initializeClaudeClient attempts to create or reinitialize the Claude client
@@ -367,6 +460,8 @@ func (m *Manager) LaunchSession(ctx context.Context, config LaunchSessionConfig,
 	if err := m.store.CreateSession(ctx, dbSession); err != nil {
 		return nil, fmt.Errorf("failed to store session in database: %w", err)
 	}
+
+	m.generateSummaryAsync(sessionID, claudeConfig.Query)
 
 	// Store MCP servers if configured
 	if claudeConfig.MCPConfig != nil && len(claudeConfig.MCPConfig.MCPServers) > 0 {
