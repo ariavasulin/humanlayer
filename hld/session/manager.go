@@ -125,10 +125,10 @@ func (m *Manager) generateSummaryAsync(sessionID string, query string) {
 
 		reqBody, err := json.Marshal(map[string]interface{}{
 			"model":      "claude-haiku-4-5-20251001",
-			"max_tokens": 50,
-			"system":     "Generate a concise session title (under 50 characters) for the following user query. Output only the title, no quotes, no punctuation at the end.",
+			"max_tokens": 15,
+			"system":     "You are a title generator. You ONLY output a brief title, nothing else. No markdown, no #, no quotes, no colons, no emoji, no explanation. Maximum 6 words.",
 			"messages": []map[string]string{
-				{"role": "user", "content": query},
+				{"role": "user", "content": "Title this: " + query},
 			},
 		})
 		if err != nil {
@@ -178,6 +178,11 @@ func (m *Manager) generateSummaryAsync(sessionID string, query string) {
 		}
 
 		summary := strings.TrimSpace(result.Content[0].Text)
+		if idx := strings.Index(summary, "\n"); idx != -1 {
+			summary = summary[:idx]
+		}
+		summary = strings.TrimLeft(summary, "#")
+		summary = strings.TrimSpace(summary)
 		if err := m.store.UpdateSession(ctx, sessionID, store.SessionUpdate{Summary: &summary}); err != nil {
 			slog.Debug("failed to update session summary", "session_id", sessionID, "error", err)
 			return
