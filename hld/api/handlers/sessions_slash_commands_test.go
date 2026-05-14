@@ -809,3 +809,176 @@ func TestGetSlashCommandsFallsBackToDefaultWhenCLAUDE_CONFIG_DIRNotSet(t *testin
 
 	mockStore.AssertExpectations(t)
 }
+
+func TestGetSlashCommands_IncludesSkills(t *testing.T) {
+	ctx := context.Background()
+
+	tempDir := t.TempDir()
+	tempHomeDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	originalClaudeConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	assert.NoError(t, os.Setenv("HOME", tempHomeDir))
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	defer func() {
+		_ = os.Setenv("HOME", originalHome)
+		if originalClaudeConfigDir != "" {
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", originalClaudeConfigDir)
+		}
+	}()
+
+	// Create a local skill
+	localSkillDir := filepath.Join(tempDir, ".claude", "skills", "test-skill")
+	assert.NoError(t, os.MkdirAll(localSkillDir, 0755))
+	assert.NoError(t, os.WriteFile(
+		filepath.Join(localSkillDir, "SKILL.md"),
+		[]byte("---\nname: test-skill\ndescription: A test skill\n---\nSkill content"),
+		0644,
+	))
+
+	// Create a global skill
+	globalSkillDir := filepath.Join(tempHomeDir, ".claude", "skills", "global-skill")
+	assert.NoError(t, os.MkdirAll(globalSkillDir, 0755))
+	assert.NoError(t, os.WriteFile(
+		filepath.Join(globalSkillDir, "SKILL.md"),
+		[]byte("---\nname: global-skill\ndescription: A global skill\n---\nSkill content"),
+		0644,
+	))
+
+	mockStore := new(MockStore)
+	handler := &SessionHandlers{store: mockStore}
+
+	req := api.GetSlashCommandsRequestObject{
+		Params: api.GetSlashCommandsParams{
+			WorkingDir: tempDir,
+		},
+	}
+
+	resp, err := handler.GetSlashCommands(ctx, req)
+	assert.NoError(t, err)
+
+	jsonResp, ok := resp.(api.GetSlashCommands200JSONResponse)
+	assert.True(t, ok)
+
+	var names []string
+	for _, cmd := range jsonResp.Data {
+		names = append(names, cmd.Name)
+	}
+
+	assert.Contains(t, names, "/test-skill")
+	assert.Contains(t, names, "/global-skill")
+}
+
+func TestGetSlashCommands_CommandWinsOverSkill(t *testing.T) {
+	ctx := context.Background()
+
+	tempDir := t.TempDir()
+	tempHomeDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	originalClaudeConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	assert.NoError(t, os.Setenv("HOME", tempHomeDir))
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	defer func() {
+		_ = os.Setenv("HOME", originalHome)
+		if originalClaudeConfigDir != "" {
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", originalClaudeConfigDir)
+		}
+	}()
+
+	// Create a command named "overlap"
+	commandsDir := filepath.Join(tempDir, ".claude", "commands")
+	assert.NoError(t, os.MkdirAll(commandsDir, 0755))
+	assert.NoError(t, os.WriteFile(
+		filepath.Join(commandsDir, "overlap.md"),
+		[]byte("# Overlap command"),
+		0644,
+	))
+
+	// Create a skill with the same name
+	skillDir := filepath.Join(tempDir, ".claude", "skills", "overlap")
+	assert.NoError(t, os.MkdirAll(skillDir, 0755))
+	assert.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: overlap\ndescription: Overlap skill\n---\nSkill content"),
+		0644,
+	))
+
+	mockStore := new(MockStore)
+	handler := &SessionHandlers{store: mockStore}
+
+	req := api.GetSlashCommandsRequestObject{
+		Params: api.GetSlashCommandsParams{
+			WorkingDir: tempDir,
+		},
+	}
+
+	resp, err := handler.GetSlashCommands(ctx, req)
+	assert.NoError(t, err)
+
+	jsonResp, ok := resp.(api.GetSlashCommands200JSONResponse)
+	assert.True(t, ok)
+
+	// /overlap should appear exactly once, as the command (source: local)
+	count := 0
+	for _, cmd := range jsonResp.Data {
+		if cmd.Name == "/overlap" {
+			count++
+			assert.Equal(t, api.SlashCommandSourceLocal, cmd.Source)
+		}
+	}
+	assert.Equal(t, 1, count, "/overlap should appear exactly once")
+}
+
+func TestGetSlashCommands_SkillWithoutFrontmatter(t *testing.T) {
+	ctx := context.Background()
+
+	tempDir := t.TempDir()
+	tempHomeDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	originalClaudeConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	assert.NoError(t, os.Setenv("HOME", tempHomeDir))
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	defer func() {
+		_ = os.Setenv("HOME", originalHome)
+		if originalClaudeConfigDir != "" {
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", originalClaudeConfigDir)
+		}
+	}()
+
+	// Create a skill without frontmatter
+	skillDir := filepath.Join(tempDir, ".claude", "skills", "no-frontmatter")
+	assert.NoError(t, os.MkdirAll(skillDir, 0755))
+	assert.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("Just some content, no frontmatter"),
+		0644,
+	))
+
+	// Create a skill with frontmatter but no name
+	skillDir2 := filepath.Join(tempDir, ".claude", "skills", "no-name")
+	assert.NoError(t, os.MkdirAll(skillDir2, 0755))
+	assert.NoError(t, os.WriteFile(
+		filepath.Join(skillDir2, "SKILL.md"),
+		[]byte("---\ndescription: Has description but no name\n---\nContent"),
+		0644,
+	))
+
+	mockStore := new(MockStore)
+	handler := &SessionHandlers{store: mockStore}
+
+	req := api.GetSlashCommandsRequestObject{
+		Params: api.GetSlashCommandsParams{
+			WorkingDir: tempDir,
+		},
+	}
+
+	resp, err := handler.GetSlashCommands(ctx, req)
+	assert.NoError(t, err)
+
+	jsonResp, ok := resp.(api.GetSlashCommands200JSONResponse)
+	assert.True(t, ok)
+
+	assert.Empty(t, jsonResp.Data, "skills without valid frontmatter should be skipped")
+}

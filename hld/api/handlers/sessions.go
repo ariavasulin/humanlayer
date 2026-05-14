@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -22,7 +23,13 @@ import (
 	"github.com/humanlayer/humanlayer/hld/session"
 	"github.com/humanlayer/humanlayer/hld/store"
 	"github.com/sahilm/fuzzy"
+	"gopkg.in/yaml.v3"
 )
+
+type SkillFrontmatter struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+}
 
 type SessionHandlers struct {
 	manager         session.SessionManager
@@ -1696,6 +1703,9 @@ func (h *SessionHandlers) GetSlashCommands(ctx context.Context, req api.GetSlash
 		)
 	}
 
+	// Discover skills (commands win on name collision)
+	discoverSkills(workingDir, commandMap)
+
 	// Extract all commands from map
 	var allCommands []api.SlashCommand
 	for _, cmd := range commandMap {
@@ -1757,6 +1767,66 @@ func (h *SessionHandlers) GetSlashCommands(ctx context.Context, req api.GetSlash
 	return api.GetSlashCommands200JSONResponse{
 		Data: results,
 	}, nil
+}
+
+func discoverSkills(workingDir string, commandMap map[string]api.SlashCommand) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	globalSkillsDir := filepath.Join(homeDir, ".claude", "skills")
+	localSkillsDir := filepath.Join(expandTilde(workingDir), ".claude", "skills")
+
+	frontmatterRegex := regexp.MustCompile(`(?s)^---\n(.+?)\n---`)
+
+	skillMap := make(map[string]api.SlashCommand)
+
+	scanSkillDir := func(dir string, source api.SlashCommandSource) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			skillPath := filepath.Join(dir, entry.Name(), "SKILL.md")
+			content, err := os.ReadFile(skillPath)
+			if err != nil {
+				continue
+			}
+
+			matches := frontmatterRegex.FindSubmatch(content)
+			if len(matches) < 2 {
+				continue
+			}
+
+			var fm SkillFrontmatter
+			if err := yaml.Unmarshal(matches[1], &fm); err != nil || fm.Name == "" {
+				continue
+			}
+
+			fullName := "/" + fm.Name
+			skillMap[fullName] = api.SlashCommand{
+				Name:   fullName,
+				Source: source,
+			}
+		}
+	}
+
+	// Global first, then local overwrites (local wins within skills)
+	scanSkillDir(globalSkillsDir, api.SlashCommandSourceGlobal)
+	scanSkillDir(localSkillsDir, api.SlashCommandSourceLocal)
+
+	// Merge into commandMap — commands already present win over skills
+	for name, skill := range skillMap {
+		if _, exists := commandMap[name]; !exists {
+			commandMap[name] = skill
+		}
+	}
 }
 
 // SearchSessions handles GET /sessions/search
