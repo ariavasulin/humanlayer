@@ -1703,6 +1703,21 @@ func (h *SessionHandlers) GetSlashCommands(ctx context.Context, req api.GetSlash
 		)
 	}
 
+	// Also discover commands from ~/.claude/commands/ (Claude Code's user commands dir)
+	homeDir, homeErr := os.UserHomeDir()
+	if homeErr == nil {
+		claudeCommandsDir := filepath.Join(homeDir, ".claude", "commands")
+		if claudeCommandsDir != localCommandsDir {
+			if err := discoverCommands(claudeCommandsDir, api.SlashCommandSourceGlobal); err != nil && !os.IsNotExist(err) {
+				slog.Warn("Failed to read ~/.claude/commands directory",
+					"error", fmt.Sprintf("%v", err),
+					"commands_dir", claudeCommandsDir,
+					"operation", "GetSlashCommands",
+				)
+			}
+		}
+	}
+
 	// Discover skills (commands win on name collision)
 	discoverSkills(workingDir, commandMap)
 
