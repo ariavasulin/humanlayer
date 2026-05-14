@@ -349,6 +349,13 @@ export class DaemonClient extends EventEmitter {
     return this.call<{ sessions: unknown[] }>('listSessions')
   }
 
+  async archiveSession(sessionId: string): Promise<{ success: boolean }> {
+    return this.call<{ success: boolean }>('archiveSession', {
+      session_id: sessionId,
+      archived: true,
+    })
+  }
+
   async createApproval(
     runId: string,
     toolName: string,
