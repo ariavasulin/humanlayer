@@ -3,6 +3,7 @@
 import { Command } from 'commander'
 import { spawn } from 'child_process'
 import { configShowCommand } from './commands/configShow.js'
+import { archiveCommand } from './commands/archive.js'
 import { launchCommand } from './commands/launch.js'
 import { thoughtsCommand } from './commands/thoughts.js'
 import { claudeCommand } from './commands/claude.js'
@@ -55,6 +56,14 @@ program
   .option('--daemon-socket <path>', 'Path to daemon socket')
   .option('--config-file <path>', 'Path to config file')
   .action(launchCommand)
+
+program
+  .command('archive')
+  .description('Archive the current session')
+  .option('--session-id <id>', 'Session ID to archive (defaults to HUMANLAYER_SESSION_ID env var)')
+  .option('--daemon-socket <path>', 'Path to daemon socket')
+  .option('--config-file <path>', 'Path to config file')
+  .action(archiveCommand)
 
 const configCommand = program.command('config').description('Configuration management')
 
